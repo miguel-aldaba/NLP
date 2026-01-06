@@ -11,7 +11,6 @@ if str(ROOT) not in sys.path:
 
 
 # Backend real (cuando exista)
-# Backend real (cuando exista)
 rag_import_error = None
 try:
     from src.rag import rag_query  # recomendado
@@ -45,8 +44,17 @@ def rag_query_stub(question: str, k: int = 5) -> dict:
 
 st.set_page_config(page_title="Chatbot RAG", layout="wide")
 st.title("Chatbot documental (RAG)")
+st.markdown("**Funcionalidad Extra:** Soporte Multilingüe (Español / English)")
 
 with st.sidebar:
+    st.header("Configuración")
+    
+    # --- NUEVO: Selector de Idioma (Funcionalidad Extra) ---
+    lang_choice = st.radio("Idioma de Respuesta / Language", ["Español", "English"])
+    target_lang = "es" if lang_choice == "Español" else "en"
+    
+    st.divider()
+    
     st.header("Parámetros")
     k = st.slider("Top-K", 1, 10, 5)
     show_snippets = st.toggle("Mostrar fragmentos", value=True)
@@ -58,6 +66,21 @@ with st.sidebar:
         help="Usa Demo mientras el backend se integra. Cambia a RAG real cuando esté listo."
     )
     st.divider()
+
+    # --- NUEVO: Visualización de Métricas (Requisito del compañero) ---
+    st.header("📊 Métricas del Sistema")
+    st.info("Resultados sobre Ground Truth (15 preguntas):")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Recall@8", "1.00")
+        st.metric("BERTScore", "0.81")
+    with col2:
+        st.metric("MRR", "0.856")
+        st.metric("FactScore", "0.76")
+    
+    st.caption("Tiempo medio: 21.78s")
+    st.divider()
+
     if rag_query is None:
         st.error(f"RAG real no conectado: {rag_import_error}")
     else:
@@ -97,7 +120,9 @@ def render_sources(sources):
             if show_snippets:
                 st.write(s.get("snippet", ""))
 
-question = st.chat_input("Escribe tu pregunta...")
+# Placeholder dinámico según idioma
+placeholder = "Escribe tu pregunta..." if target_lang == "es" else "Type your question here..."
+question = st.chat_input(placeholder)
 
 if question:
     st.session_state.history.append({"role": "user", "content": question})
@@ -112,7 +137,8 @@ if question:
                 "sources": []
             }
         else:
-            result = rag_query(question, k=k)
+            # --- NUEVO: Pasamos el target_lang al backend ---
+            result = rag_query(question, k=k, target_lang=target_lang)
     else:
         result = rag_query_stub(question, k=k)
 
@@ -145,6 +171,7 @@ for msg in st.session_state.history:
             )
 
             if meta.get("rejected", False):
-                st.warning("No se encontró evidencia suficiente en la base documental.")
+                warn_msg = "No se encontró evidencia suficiente." if target_lang == "es" else "Not enough evidence found."
+                st.warning(warn_msg)
 
             render_sources(meta.get("sources", []))

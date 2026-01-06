@@ -158,7 +158,6 @@ def _build_chunks_from_data_dir(data_dir: Path) -> List[Chunk]:
     )
 
 
-
 def _save_chunks(chunks: List[Chunk], path: Path) -> None:
     payload = [
         {"doc_id": c.doc_id, "page": c.page, "chunk_id": c.chunk_id, "text": c.text}
@@ -322,39 +321,42 @@ def _retrieve(query: str, r, top_k: int = 5) -> List[Dict[str, Any]]:
     return results
 
 
-def rag_query(question: str, k: int = 5) -> Dict[str, Any]:
+def rag_query(question: str, k: int = 5, target_lang: str = "es") -> Dict[str, Any]:
     """
-    Devuelve un dict estable para tu Streamlit:
-
-    {
-      "answer": str,
-      "rejected": bool,
-      "sources": [
-         {"doc_id": str, "page": int|None, "chunk_id": str, "score": float, "snippet": str}
-      ]
-    }
-
-    Requisito: si no hay doc relevante, NO responder (rejected=True). :contentReference[oaicite:1]{index=1}
+    Devuelve un dict estable para tu Streamlit.
+    target_lang: 'es' para Español, 'en' para Inglés.
     """
     r = _load_resources()
 
     q = (question or "").strip()
+    # Mensaje de error bilingüe
+    msg_empty = "Escribe una pregunta." if target_lang == "es" else "Please write a question."
     if not q:
-        return {"answer": "Escribe una pregunta.", "rejected": True, "sources": []}
+        return {"answer": msg_empty, "rejected": True, "sources": []}
 
     retrieved = _retrieve(q, r, top_k=k)
+    
+    # Mensaje de "no info" bilingüe
+    msg_no_info = "No tengo información suficiente en los documentos." if target_lang == "es" else "I don't have enough information in the documents."
+    
     if not retrieved:
-        return {"answer": "No tengo información suficiente en los documentos.", "rejected": True, "sources": []}
+        return {"answer": msg_no_info, "rejected": True, "sources": []}
 
     best_score = retrieved[0]["score"]
     if best_score < MIN_SCORE_TO_ANSWER:
-        return {"answer": "No tengo información suficiente en los documentos.", "rejected": True, "sources": []}
+        return {"answer": msg_no_info, "rejected": True, "sources": []}
 
-    # Generación (igual que el notebook: ES->EN -> BART -> EN->ES)
+    # Generación:
+    # 1. Recuperado (ES) -> 2. Traducir (EN) -> 3. BART (EN)
     context_es = " ".join([x["text"] for x in retrieved])
     context_en = _translate_es_to_en_chunks(context_es, r)
     summary_en = _summarize_bart(context_en, r)
-    answer_es = _translate_en_to_es(summary_en, r)
+
+    # 4. Decisión de idioma: Si piden Español, traducimos. Si piden Inglés, devolvemos directo.
+    if target_lang == "es":
+        final_answer = _translate_en_to_es(summary_en, r)
+    else:
+        final_answer = summary_en
 
     sources = []
     for x in retrieved:
@@ -368,4 +370,4 @@ def rag_query(question: str, k: int = 5) -> Dict[str, Any]:
             }
         )
 
-    return {"answer": answer_es, "rejected": False, "sources": sources}
+    return {"answer": final_answer, "rejected": False, "sources": sources}
