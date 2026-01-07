@@ -246,9 +246,9 @@ def _translate_es_to_en(text: str, r) -> str:
     tok = r["es_en_tok"]
     model = r["es_en_model"]
     device = r["device"]
-    inputs = tok([text], return_tensors="pt", truncation=True, padding=True).to(device)
+    inputs = tok([text], return_tensors="pt", truncation=True, padding=True, max_length=512).to(device)
     with torch.no_grad():
-        out = model.generate(**inputs, max_length=1024)
+        out = model.generate(**inputs, max_length=512) 
     return tok.decode(out[0], skip_special_tokens=True)
 
 
@@ -256,7 +256,7 @@ def _translate_en_to_es(text: str, r) -> str:
     tok = r["en_es_tok"]
     model = r["en_es_model"]
     device = r["device"]
-    inputs = tok([text], return_tensors="pt", truncation=True, padding=True).to(device)
+    inputs = tok([text], return_tensors="pt", truncation=True, padding=True, max_length=512).to(device)
     with torch.no_grad():
         out = model.generate(**inputs, max_length=512)
     return tok.decode(out[0], skip_special_tokens=True)
