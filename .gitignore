@@ -1,0 +1,38 @@
+# --- Python & Sistema ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+Thumbs.db
+__MACOSX/
+
+# --- Entorno Virtual (¡Muy importante!) ---
+# Ignoramos la carpeta del entorno para no subir miles de archivos de librerías
+venv/
+env/
+.env
+
+# --- IDEs ---
+.vscode/
+.idea/
+
+# --- Datos y Artefactos del RAG (Para "no petar" GitHub) ---
+# Ignoramos los PDFs originales (pesan mucho)
+data/raw/*.pdf
+# Ignoramos los archivos intermedios procesados
+data/processed/*.txt
+
+# Ignoramos los índices generados y la caché (FAISS, Chunks)
+# Esto se regenera solo si lo borras, no hace falta subirlo
+data/.artifacts/
+*.index
+chunks.json
+
+# --- Streamlit ---
+.streamlit/secrets.toml
+
+# --- Modelos locales (si se descargaron en local) ---
+*.bin
+*.pt
+*.pth

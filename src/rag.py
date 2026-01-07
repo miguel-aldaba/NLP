@@ -23,20 +23,21 @@ from transformers import MarianMTModel, MarianTokenizer
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
-PROCESSED_DIR = DATA_DIR / "processed"
+PROCESSED_DIR = DATA_DIR / "processed" # <--- RECUPERADO
 ARTIFACTS_DIR = DATA_DIR / ".artifacts"
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
 INDEX_PATH = ARTIFACTS_DIR / "faiss.index"
 CHUNKS_PATH = ARTIFACTS_DIR / "chunks.json"
 
-EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
+# CAMBIO CLAVE: Modelo Multilingüe (para que funcione bien la búsqueda en inglés)
+EMBED_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
 BART_MODEL_NAME = "facebook/bart-large-cnn"
 ES_EN_MODEL_NAME = "Helsinki-NLP/opus-mt-es-en"
 EN_ES_MODEL_NAME = "Helsinki-NLP/opus-mt-en-es"
 
 # Umbral simple para “no hay doc relevante”
-# Como usamos cosine similarity (IndexFlatIP), scores altos = mejor.
 MIN_SCORE_TO_ANSWER = 0.30
 
 
@@ -55,10 +56,6 @@ class Chunk:
 # Text extraction
 # -----------------------------
 def _extract_pdf_text_per_page(pdf_path: Path) -> List[Tuple[int, str]]:
-    """
-    Devuelve lista de (page_number_1_based, text).
-    Intentamos PyMuPDF (fitz) si está, si no, pdfplumber.
-    """
     try:
         import fitz  # pymupdf
         doc = fitz.open(pdf_path)
@@ -89,10 +86,6 @@ def _clean_text(t: str) -> str:
 
 
 def _chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> List[str]:
-    """
-    Chunking simple por caracteres, con solape (mejor recuperación).
-    Basado en vuestro notebook, pero con overlap para no cortar ideas.
-    """
     text = text.strip()
     if not text:
         return []
@@ -116,6 +109,9 @@ def _build_chunks_from_data_dir(data_dir: Path) -> List[Chunk]:
 
     # 1) Prioridad: PDFs en data/raw
     pdfs = sorted(list(raw_dir.glob("*.pdf"))) if raw_dir.exists() else []
+    
+    # --- LÓGICA RECUPERADA ---
+    # Si hay PDFs, los usamos
     if pdfs:
         all_chunks: List[Chunk] = []
         for pdf in pdfs:
@@ -134,7 +130,7 @@ def _build_chunks_from_data_dir(data_dir: Path) -> List[Chunk]:
                     )
         return all_chunks
 
-    # 2) Alternativa: TXT en data/processed (si ya tenéis texto extraído)
+    # 2) Alternativa: TXT en data/processed (RECUPERADO)
     txts = sorted(list(processed_dir.glob("*.txt"))) if processed_dir.exists() else []
     if txts:
         all_chunks: List[Chunk] = []
@@ -152,10 +148,8 @@ def _build_chunks_from_data_dir(data_dir: Path) -> List[Chunk]:
                 )
         return all_chunks
 
-    raise RuntimeError(
-        f"No hay PDFs en {raw_dir} ni TXT en {processed_dir}. "
-        f"Mete documentos en data/raw/ o data/processed/."
-    )
+    # Si llegamos aquí es que no hay nada
+    return []
 
 
 def _save_chunks(chunks: List[Chunk], path: Path) -> None:
@@ -167,16 +161,12 @@ def _save_chunks(chunks: List[Chunk], path: Path) -> None:
 
 
 def _load_chunks(path: Path) -> List[Chunk]:
+    if not path.exists(): return []
     payload = json.loads(path.read_text(encoding="utf-8"))
     return [Chunk(**d) for d in payload]
 
 
 def _build_faiss_index(embeddings: np.ndarray) -> faiss.Index:
-    """
-    Usamos cosine similarity:
-      - normalizamos embeddings
-      - IndexFlatIP (inner product)
-    """
     dim = embeddings.shape[1]
     index = faiss.IndexFlatIP(dim)
     index.add(embeddings.astype(np.float32))
@@ -188,6 +178,7 @@ def _maybe_build_artifacts() -> None:
         return
 
     chunks = _build_chunks_from_data_dir(DATA_DIR)
+    if not chunks: return
 
     embedder = SentenceTransformer(EMBED_MODEL_NAME)
     texts = [c.text for c in chunks]
@@ -201,16 +192,14 @@ def _maybe_build_artifacts() -> None:
 
 @lru_cache(maxsize=1)
 def _load_resources():
-    """
-    Carga (y cachea) índice + chunks + modelos de traducción + BART.
-    Se ejecuta una sola vez por proceso (perfecto para Streamlit).
-    """
     _maybe_build_artifacts()
+
+    if not INDEX_PATH.exists():
+         raise RuntimeError("No se pudo crear el índice. ¿Tienes PDFs en data/raw?")
 
     index = faiss.read_index(str(INDEX_PATH))
     chunks = _load_chunks(CHUNKS_PATH)
 
-    # Embeddings (solo para query)
     embedder = SentenceTransformer(EMBED_MODEL_NAME)
 
     # Traducción
@@ -323,22 +312,19 @@ def _retrieve(query: str, r, top_k: int = 5) -> List[Dict[str, Any]]:
 
 def rag_query(question: str, k: int = 5, target_lang: str = "es") -> Dict[str, Any]:
     """
-    Devuelve un dict estable para tu Streamlit.
-    target_lang: 'es' para Español, 'en' para Inglés.
+    RAG Real con soporte multilingüe.
     """
     r = _load_resources()
 
     q = (question or "").strip()
-    # Mensaje de error bilingüe
     msg_empty = "Escribe una pregunta." if target_lang == "es" else "Please write a question."
     if not q:
         return {"answer": msg_empty, "rejected": True, "sources": []}
 
     retrieved = _retrieve(q, r, top_k=k)
     
-    # Mensaje de "no info" bilingüe
     msg_no_info = "No tengo información suficiente en los documentos." if target_lang == "es" else "I don't have enough information in the documents."
-    
+
     if not retrieved:
         return {"answer": msg_no_info, "rejected": True, "sources": []}
 
@@ -346,13 +332,11 @@ def rag_query(question: str, k: int = 5, target_lang: str = "es") -> Dict[str, A
     if best_score < MIN_SCORE_TO_ANSWER:
         return {"answer": msg_no_info, "rejected": True, "sources": []}
 
-    # Generación:
-    # 1. Recuperado (ES) -> 2. Traducir (EN) -> 3. BART (EN)
+    # Pipeline: ES -> EN -> Resumen -> (Opcional ES)
     context_es = " ".join([x["text"] for x in retrieved])
     context_en = _translate_es_to_en_chunks(context_es, r)
     summary_en = _summarize_bart(context_en, r)
 
-    # 4. Decisión de idioma: Si piden Español, traducimos. Si piden Inglés, devolvemos directo.
     if target_lang == "es":
         final_answer = _translate_en_to_es(summary_en, r)
     else:
