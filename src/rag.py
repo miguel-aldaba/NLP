@@ -10,7 +10,8 @@ from functools import lru_cache
 import numpy as np
 
 import faiss
-from sentence_transformers import SentenceTransformer
+# --- NUEVO: Importamos CrossEncoder para el re-ranking ---
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 import torch
 from transformers import BartTokenizer, BartForConditionalGeneration
@@ -23,23 +24,27 @@ from transformers import MarianMTModel, MarianTokenizer
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
-PROCESSED_DIR = DATA_DIR / "processed" # <--- RECUPERADO
+PROCESSED_DIR = DATA_DIR / "processed"
 ARTIFACTS_DIR = DATA_DIR / ".artifacts"
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
 INDEX_PATH = ARTIFACTS_DIR / "faiss.index"
 CHUNKS_PATH = ARTIFACTS_DIR / "chunks.json"
 
-# CAMBIO CLAVE: Modelo Multilingüe (para que funcione bien la búsqueda en inglés)
+# Modelo para búsqueda rápida (Bi-Encoder Multilingüe)
 EMBED_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+# --- NUEVO: Modelo para Re-ranking (Cross-Encoder) ---
+# Este modelo es un "Juez" experto que re-ordena los resultados
+RERANK_MODEL_NAME = "BAAI/bge-reranker-v2-m3"
 
 BART_MODEL_NAME = "facebook/bart-large-cnn"
 ES_EN_MODEL_NAME = "Helsinki-NLP/opus-mt-es-en"
 EN_ES_MODEL_NAME = "Helsinki-NLP/opus-mt-en-es"
 
-# Umbral simple para “no hay doc relevante”
-MIN_SCORE_TO_ANSWER = 0.30
-
+# Umbral de seguridad (Cross-Encoder devuelve logits, no probabilidad 0-1)
+# Un valor < -4 suele ser irrelevante en MS-MARCO
+MIN_RERANK_SCORE = -5.0
 
 # -----------------------------
 # Types
@@ -110,8 +115,6 @@ def _build_chunks_from_data_dir(data_dir: Path) -> List[Chunk]:
     # 1) Prioridad: PDFs en data/raw
     pdfs = sorted(list(raw_dir.glob("*.pdf"))) if raw_dir.exists() else []
     
-    # --- LÓGICA RECUPERADA ---
-    # Si hay PDFs, los usamos
     if pdfs:
         all_chunks: List[Chunk] = []
         for pdf in pdfs:
@@ -130,7 +133,7 @@ def _build_chunks_from_data_dir(data_dir: Path) -> List[Chunk]:
                     )
         return all_chunks
 
-    # 2) Alternativa: TXT en data/processed (RECUPERADO)
+    # 2) Alternativa: TXT en data/processed
     txts = sorted(list(processed_dir.glob("*.txt"))) if processed_dir.exists() else []
     if txts:
         all_chunks: List[Chunk] = []
@@ -148,7 +151,6 @@ def _build_chunks_from_data_dir(data_dir: Path) -> List[Chunk]:
                 )
         return all_chunks
 
-    # Si llegamos aquí es que no hay nada
     return []
 
 
@@ -201,6 +203,9 @@ def _load_resources():
     chunks = _load_chunks(CHUNKS_PATH)
 
     embedder = SentenceTransformer(EMBED_MODEL_NAME)
+    
+    # --- NUEVO: Cargar el Cross-Encoder ---
+    reranker = CrossEncoder(RERANK_MODEL_NAME, max_length=512)
 
     # Traducción
     es_en_tok = MarianTokenizer.from_pretrained(ES_EN_MODEL_NAME)
@@ -223,6 +228,7 @@ def _load_resources():
         "index": index,
         "chunks": chunks,
         "embedder": embedder,
+        "reranker": reranker, # <--- Guardamos el reranker
         "es_en_tok": es_en_tok,
         "es_en_model": es_en_model,
         "en_es_tok": en_es_tok,
@@ -284,35 +290,52 @@ def _summarize_bart(text_en: str, r, max_input_tokens: int = 1024, max_output_to
     return tok.decode(summary_ids[0], skip_special_tokens=True)
 
 
+# --- NUEVA FUNCIÓN DE RETRIEVAL CON RE-RANKING ---
 def _retrieve(query: str, r, top_k: int = 5) -> List[Dict[str, Any]]:
-    embedder = r["embedder"]
-    index = r["index"]
-    chunks: List[Chunk] = r["chunks"]
-
-    q = query.strip()
-    q_vec = embedder.encode([q], convert_to_numpy=True, normalize_embeddings=True).astype(np.float32)
-
-    scores, idxs = index.search(q_vec, top_k)  # scores: (1,k), idxs:(1,k)
-    results: List[Dict[str, Any]] = []
+    # 1. Recuperación inicial amplia (Bi-Encoder)
+    # Pedimos 3 veces más candidatos (ej. 15 si k=5) para que el Re-ranker tenga donde elegir
+    candidates_k = top_k * 3 
+    
+    q_vec = r["embedder"].encode([query], convert_to_numpy=True, normalize_embeddings=True).astype(np.float32)
+    scores, idxs = r["index"].search(q_vec, candidates_k)
+    
+    initial_results = []
     for score, idx in zip(scores[0], idxs[0]):
-        if idx < 0:
-            continue
-        c = chunks[int(idx)]
-        results.append(
-            {
-                "doc_id": c.doc_id,
-                "page": c.page,
-                "chunk_id": c.chunk_id,
-                "score": float(score),
-                "text": c.text,
-            }
-        )
-    return results
+        if idx < 0: continue
+        c = r["chunks"][int(idx)]
+        initial_results.append(c)
+
+    if not initial_results:
+        return []
+
+    # 2. Re-ranking (Cross-Encoder)
+    # Preparamos pares [Pregunta, Texto del documento]
+    pairs = [[query, doc.text] for doc in initial_results]
+    
+    # El modelo predice un score para cada par
+    cross_scores = r["reranker"].predict(pairs)
+
+    # 3. Combinar y Ordenar
+    reranked = []
+    for doc, score in zip(initial_results, cross_scores):
+        reranked.append({
+            "doc_id": doc.doc_id, 
+            "page": doc.page, 
+            "chunk_id": doc.chunk_id, 
+            "score": float(score), # Score del CrossEncoder (más fiable)
+            "text": doc.text
+        })
+    
+    # Orden descendente por el NUEVO score
+    reranked = sorted(reranked, key=lambda x: x["score"], reverse=True)
+    
+    # Devolvemos solo los top_k mejores
+    return reranked[:top_k]
 
 
 def rag_query(question: str, k: int = 5, target_lang: str = "es") -> Dict[str, Any]:
     """
-    RAG Real con soporte multilingüe.
+    RAG Real con soporte multilingüe y Re-ranking.
     """
     r = _load_resources()
 
@@ -328,8 +351,10 @@ def rag_query(question: str, k: int = 5, target_lang: str = "es") -> Dict[str, A
     if not retrieved:
         return {"answer": msg_no_info, "rejected": True, "sources": []}
 
+    # Validación de Score (OJO: CrossEncoder usa logits, no 0-1)
+    # Un valor < -4 suele ser muy irrelevante.
     best_score = retrieved[0]["score"]
-    if best_score < MIN_SCORE_TO_ANSWER:
+    if best_score < MIN_RERANK_SCORE:
         return {"answer": msg_no_info, "rejected": True, "sources": []}
 
     # Pipeline: ES -> EN -> Resumen -> (Opcional ES)
