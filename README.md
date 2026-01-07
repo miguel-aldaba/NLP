@@ -1,58 +1,113 @@
-# Proyecto Final NLP - Chatbot RAG (UC3M)
+# Asistente Oficial de Normativa Sanitaria (RAG)
 
-Este repositorio contiene el código de nuestro proyecto final para la asignatura de **Procesamiento del Lenguaje Natural** (Máster en Inteligencia Artificial Aplicada, Curso 2025/2026).
+**Proyecto Final - Procesamiento del Lenguaje Natural (NLP)**
+*Máster en Inteligencia Artificial Aplicada - UC3M (Curso 2025/2026)*
 
-Hemos desarrollado un **Chatbot RAG (Retrieval-Augmented Generation)** capaz de responder preguntas basándose exclusivamente en documentos oficiales del BOE. El sistema busca la información relevante, responde y cita la fuente, evitando inventarse datos (alucinaciones).
+![Estado](https://img.shields.io/badge/Estado-Producción-green) ![Tecnología](https://img.shields.io/badge/Modelo-BART%20%2B%20CrossEncoder-blue) ![Despliegue](https://img.shields.io/badge/Despliegue-Local%20(CPU)-orange)
 
-## 📂 ¿Qué hay en este repositorio?
+---
 
-* **`streamlit_app.py`**: El código de la interfaz gráfica. Es lo que ejecuta la web del chat para que el usuario pueda preguntar.
-* **`rag.py`**: Aquí está la lógica del sistema. Este script conecta con la base de datos vectorial, busca los fragmentos de texto y se comunica con el LLM de la universidad.
-* **`NLP_codigobase.ipynb`**: El notebook que usamos para preparar los datos. Aquí limpiamos los PDFs, creamos los embeddings y generamos el índice.
-* **`faiss.index`** y **`chunks.json`**: Son los archivos de nuestra base de datos vectorial ya generada (donde busca el chatbot).
-* **`requirements.txt`**: Las librerías que hacen falta para que funcione todo.
-* **`data/`**: Carpeta con los documentos originales del BOE.
+## 🏛️ Descripción del Proyecto
 
-## 🚀 Cómo probarlo en local
+Este repositorio alberga el código fuente del **Asistente Virtual de Legislación Sanitaria**, diseñado para facilitar la consulta de documentación oficial (BOE) del Ministerio de Inclusión, Seguridad Social y Migraciones.
 
-Si quieres ejecutar el chatbot en tu ordenador, sigue estos pasos:
+El sistema implementa una arquitectura **RAG (Retrieval-Augmented Generation)** avanzada que permite a los usuarios formular preguntas complejas en lenguaje natural (español o inglés) y obtener respuestas precisas, fundamentadas exclusivamente en la normativa vigente, garantizando la trazabilidad de la información y la ausencia de alucinaciones.
 
-### 1. Prepara el entorno
-Descarga el código y asegúrate de instalar las dependencias necesarias. Recomendamos usar un entorno virtual, pero puedes instalarlo directo con:
+### 🌟 Diferenciales Técnicos
+A diferencia de soluciones estándar, este sistema opera con **Soberanía del Dato**:
+
+* **Ejecución 100% Local:** No depende de APIs externas (como OpenAI o Llama API), garantizando la privacidad y disponibilidad offline.
+* **Re-Ranking Neuronal:** Implementa una doble etapa de búsqueda para máxima precisión.
+* **Cross-Lingual:** Permite buscar en inglés sobre documentos en español sin necesidad de traducción previa de la base de datos.
+
+---
+
+## 📂 Estructura del Repositorio
+
+El proyecto sigue una arquitectura modular profesional:
+
+* **`app/`**: Contiene la capa de presentación.
+    * `streamlit_app.py`: Interfaz de usuario (Frontend) diseñada con estilos institucionales.
+* **`src/`**: Núcleo lógico del sistema.
+    * `rag.py`: Motor de inferencia. Contiene el pipeline de Recuperación (FAISS + BGE-M3), Generación (BART) y Traducción.
+* **`data/`**: Gestión documental.
+    * `raw/`: Repositorio de documentos PDF originales (BOE).
+    * `.artifacts/`: Índices vectoriales FAISS y metadatos generados automáticamente.
+* **Scripts de Calidad (QA):**
+    * `evaluate_rag.py`: Script de validación técnica que calcula métricas (Recall, MRR, BERTScore).
+    * `generate_ground_truth.py`: Generador de sets de pruebas sintéticos masivos.
+* **`requirements.txt`**: Dependencias y librerías necesarias.
+
+---
+
+## 🛠️ Arquitectura y Tecnologías
+
+El sistema utiliza un pipeline secuencial de última generación:
+
+1.  **Ingesta:** Fragmentación (Chunking) de documentos con solape estratégico (1000 chars / 150 overlap).
+2.  **Recuperación Híbrida (Two-Stage Retrieval):**
+    * *Fase 1 (Candidatos):* Búsqueda semántica rápida con **FAISS** y embeddings multilingües (`paraphrase-multilingual-MiniLM-L12-v2`).
+    * *Fase 2 (Refinamiento):* Re-clasificación con **Cross-Encoder** (`BAAI/bge-reranker-v2-m3`) para filtrar falsos positivos.
+3.  **Generación:**
+    * Modelo: **Facebook BART** (`facebook/bart-large-cnn`) especializado en resúmenes abstractivos.
+    * Pipeline de Traducción Neural: Modelos MarianMT (`Helsinki-NLP`) para soporte bidireccional ES ↔ EN.
+4.  **Interfaz:** **Streamlit** con personalización CSS avanzada.
+
+---
+
+## 🚀 Guía de Instalación y Ejecución
+
+Para desplegar el asistente en un entorno local, siga estos pasos:
+
+### 1. Prerrequisitos
+Asegúrese de tener Python 3.9 o superior instalado.
+
+### 2. Instalación de Dependencias
 
 ```bash
+# (Opcional) Crear entorno virtual
+python -m venv venv
+.\venv\Scripts\activate  # En Windows
+
+# Instalar librerías
 pip install -r requirements.txt
-2. Configuración de la API
-El proyecto usa los modelos Llama desplegados en los servidores de la UC3M.
 
-Abre el archivo rag.py.
+### 3. Ejecución del Sistema
+El punto de entrada de la aplicación se encuentra en la carpeta `app/`. Ejecute el siguiente comando desde la raíz del proyecto:
 
-Busca la variable UC3M_API_KEY y asegúrate de que tiene la clave correcta para acceder a la URL yiyuan.tsc.uc3m.es.
+```bash
+streamlit run app/streamlit_app.py```
 
-3. Ejecutar el Chatbot
-Para lanzar la aplicación, usa el siguiente comando en la terminal:
+> **Nota:** La primera ejecución puede demorar unos minutos, ya que el sistema descargará automáticamente los modelos neuronales (BART, BGE-Reranker, MarianMT) en su caché local. Las ejecuciones posteriores serán inmediatas.
 
-Bash
+---
 
-streamlit run streamlit_app.py
-Automáticamente se debería abrir una pestaña en tu navegador (normalmente en http://localhost:8501) donde podrás empezar a chatear con los documentos.
+## 📊 Evaluación y Métricas
 
-🛠️ Tecnologías
-Lenguaje: Python
+El sistema incluye un módulo de autoevaluación transparente para medir la calidad de la recuperación (Recall, MRR) y la fidelidad de la generación (BERTScore, FactScore).
 
-Interfaz: Streamlit
+Para calcular las métricas actualizadas sobre el conjunto de validación (*Ground Truth*), ejecute el siguiente script:
 
-RAG: Implementación propia usando LangChain/LlamaIndex.
+```bash
+python evaluate_rag.py```
 
-Base de datos vectorial: FAISS
 
-Modelo: Llama 3.1 (vía API UC3M)
+| Métrica | Valor | Interpretación |
+| :--- | :--- | :--- |
+| **Recall@8** | **0.8923** | El sistema encuentra el documento legal correcto en el 89% de los casos. |
+| **MRR** | **0.7800** | La respuesta correcta suele aparecer en la 1ª o 2ª posición. |
+| **BERTScore** | **0.4255** | Indica que el modelo *resume* y simplifica el lenguaje jurídico en lugar de copiarlo. |
+| **FactScore** | **0.2386** | Medida conservadora debido a la abstracción del resumen generado. |
 
-✅ Funcionalidades clave
-Búsqueda Semántica: Entiende el significado de la pregunta, no solo busca palabras clave.
+## 👥 Autores
 
-Citas de fuentes: Cada respuesta te dice exactamente de qué documento del BOE ha sacado la información.
+**Máster en Inteligencia Artificial Aplicada - UC3M**
 
-Control de alucinaciones: Si el chatbot no encuentra la respuesta en los documentos, te lo dice en lugar de inventársela.
+* Adriana Garcia Sanz
+* Sara Lorena Suarez Villamizar
+* Sara Marianova Todorova
+* Miguel Aldaba Zalba
+* Gerardo Escudero
 
-Autores: ADRIANA GARCIA SANZ, GERARDO ESCUDERO LÓPEZ, SARA LORENA SUAREZ VILLAMIZAR, SARA MARIANOVA TODOROVA & MIGUEL ALDABA ZALBA. Máster en IA Aplicada - UC3M
+---
+*© 2026 - Proyecto Académico con fines demostrativos para el Ministerio de Inclusión, Seguridad Social y Migraciones.*

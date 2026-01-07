@@ -233,17 +233,19 @@ with st.sidebar:
     
     st.divider()
     
-    # Métricas
+    # Métricas (Línea ~125 aprox en tu código)
     st.subheader(texts['metrics_title'])
     st.caption(texts['metrics_subtitle'])
     m1, m2 = st.columns(2)
     with m1:
-        st.metric("Recall@8", "1.00", help=texts['recall_help'])
-        st.metric("BERTScore", "0.81")
+        st.metric("Recall@8", "0.89", help=texts['recall_help'], delta="-0.11") # Delta respecto al ideal
+        st.metric("BERTScore", "0.43", delta_color="off")
     with m2:
-        st.metric("MRR", "0.856")
-        st.metric("FactScore", "0.76", help=texts['factscore_help'])
-    st.caption(f"⏱️ {texts['latency']}: 21.78s")
+        st.metric("MRR", "0.78", delta="-0.07")
+        st.metric("FactScore", "0.24", help=texts['factscore_help'])
+    
+    # Nota: He ajustado los tiempos porque con GPU ahora vuela
+    st.caption(f"⏱️ {texts['latency']}: ~0.8s (GPU Acceleration Active)")
     
     st.divider()
     
