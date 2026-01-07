@@ -3,7 +3,7 @@
 **Proyecto Final - Procesamiento del Lenguaje Natural (NLP)**
 *Máster en Inteligencia Artificial Aplicada - UC3M (Curso 2025/2026)*
 
-![Estado](https://img.shields.io/badge/Estado-Producción-green) ![Tecnología](https://img.shields.io/badge/Modelo-BART%20%2B%20CrossEncoder-blue) ![Despliegue](https://img.shields.io/badge/Despliegue-Local%20(CPU)-orange)
+![Estado](https://img.shields.io/badge/Estado-Producción-green) ![Tecnología](https://img.shields.io/badge/Modelo-BART%20%2B%20CrossEncoder-blue) ![Despliegue](https://img.shields.io/badge/Despliegue-Local%20(GPU%2FCPU)-orange)
 
 ---
 
@@ -64,21 +64,18 @@ Asegúrese de tener Python 3.9 o superior instalado.
 
 ### 2. Instalación de Dependencias
 
-```bash
-# (Opcional) Crear entorno virtual
-python -m venv venv
-.\venv\Scripts\activate  # En Windows
+Ejecute los siguientes comandos en su terminal:
 
-# Instalar librerías
-pip install -r requirements.txt
+> python -m venv venv
+> .\venv\Scripts\activate
+> pip install -r requirements.txt
 
 ### 3. Ejecución del Sistema
 El punto de entrada de la aplicación se encuentra en la carpeta `app/`. Ejecute el siguiente comando desde la raíz del proyecto:
 
-```bash
-streamlit run app/streamlit_app.py```
+> streamlit run app/streamlit_app.py
 
-> **Nota:** La primera ejecución puede demorar unos minutos, ya que el sistema descargará automáticamente los modelos neuronales (BART, BGE-Reranker, MarianMT) en su caché local. Las ejecuciones posteriores serán inmediatas.
+**Nota:** La primera ejecución puede demorar unos minutos, ya que el sistema descargará automáticamente los modelos neuronales (BART, BGE-Reranker, MarianMT) en su caché local. Las ejecuciones posteriores serán inmediatas.
 
 ---
 
@@ -88,9 +85,7 @@ El sistema incluye un módulo de autoevaluación transparente para medir la cali
 
 Para calcular las métricas actualizadas sobre el conjunto de validación (*Ground Truth*), ejecute el siguiente script:
 
-```bash
-python evaluate_rag.py```
-
+> python evaluate_rag.py
 
 | Métrica | Valor | Interpretación |
 | :--- | :--- | :--- |
@@ -98,6 +93,8 @@ python evaluate_rag.py```
 | **MRR** | **0.7800** | La respuesta correcta suele aparecer en la 1ª o 2ª posición. |
 | **BERTScore** | **0.4255** | Indica que el modelo *resume* y simplifica el lenguaje jurídico en lugar de copiarlo. |
 | **FactScore** | **0.2386** | Medida conservadora debido a la abstracción del resumen generado. |
+
+---
 
 ## 👥 Autores
 
